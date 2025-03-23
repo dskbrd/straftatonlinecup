@@ -231,9 +231,15 @@ app.MapGet("/getpastfivecups", async (HttpContext context, IDbConnection databas
 
 });
 
-// TODO: Limit endpoint to localhost
 app.MapGet("/createnewcup", (HttpContext context, IDbConnection database) => {
 
+    var remoteIp = context.Connection.RemoteIpAddress;
+
+    if (!IPAddress.IsLoopback(remoteIp))
+    {
+        return "Only accessible from localhost!";
+    }
+    
     string dateOfCup = DateTime.Today.AddDays(2).ToString("yyyy-MM-dd");
 
     int openCup = database.Query<int>($"SELECT [id] FROM [cups] WHERE (status = \"open\" OR status = \"ongoing\") LIMIT 1").FirstOrDefault(-1);
@@ -292,52 +298,58 @@ app.MapGet("/register", (HttpContext context, IDbConnection database) => {
     }
 });
 
-// TODO: Limit endpoint to localhost
 app.MapGet("/generatebracket", (IDbConnection database) => {
 
-        int currentCupId = database.Query<int>($"SELECT [id] FROM [cups] WHERE (status = \"open\") LIMIT 1").FirstOrDefault(-1);
+    var remoteIp = context.Connection.RemoteIpAddress;
 
-        List<string> listOfRegisteredPlayers = database.Query<string>($"SELECT [player_steamid] FROM [cup_player_lists] WHERE (cup_id = \"{currentCupId}\")").ToList();
+    if (!IPAddress.IsLoopback(remoteIp))
+    {
+        return "Only accessible from localhost!";
+    }
+    
+    int currentCupId = database.Query<int>($"SELECT [id] FROM [cups] WHERE (status = \"open\") LIMIT 1").FirstOrDefault(-1);
 
-        int numberOfPlayers = listOfRegisteredPlayers.Count;
+    List<string> listOfRegisteredPlayers = database.Query<string>($"SELECT [player_steamid] FROM [cup_player_lists] WHERE (cup_id = \"{currentCupId}\")").ToList();
 
-        if (numberOfPlayers < 16) {
-            int numberOfPlayersToAdd = 16 - numberOfPlayers;
-            for (int i = 0; i < numberOfPlayersToAdd; i++) {
-                listOfRegisteredPlayers.Add("NO_OPPONENT");
-            }
-            numberOfPlayers = listOfRegisteredPlayers.Count;
+    int numberOfPlayers = listOfRegisteredPlayers.Count;
+
+    if (numberOfPlayers < 16) {
+        int numberOfPlayersToAdd = 16 - numberOfPlayers;
+        for (int i = 0; i < numberOfPlayersToAdd; i++) {
+            listOfRegisteredPlayers.Add("NO_OPPONENT");
         }
+        numberOfPlayers = listOfRegisteredPlayers.Count;
+    }
 
-        for (int i = 0; i < (numberOfPlayers / 2); i++) {
+    for (int i = 0; i < (numberOfPlayers / 2); i++) {
 
-            int randomInteger1 = random.Next(listOfRegisteredPlayers.Count);
-            string playerOne = listOfRegisteredPlayers[randomInteger1];
-            listOfRegisteredPlayers.RemoveAt(randomInteger1);
+        int randomInteger1 = random.Next(listOfRegisteredPlayers.Count);
+        string playerOne = listOfRegisteredPlayers[randomInteger1];
+        listOfRegisteredPlayers.RemoveAt(randomInteger1);
 
-            int randomInteger2 = random.Next(listOfRegisteredPlayers.Count);
-            string playerTwo = listOfRegisteredPlayers[randomInteger2];
-            listOfRegisteredPlayers.RemoveAt(randomInteger2);
+        int randomInteger2 = random.Next(listOfRegisteredPlayers.Count);
+        string playerTwo = listOfRegisteredPlayers[randomInteger2];
+        listOfRegisteredPlayers.RemoveAt(randomInteger2);
 
-            generateMatch(i, playerOne, playerTwo, database);
-        }
+        generateMatch(i, playerOne, playerTwo, database);
+    }
 
-        // TODO: This in a more efficient way which I imagine there is
-        for (int matchNumber = 0; matchNumber < 14; matchNumber++) {
-            foreach (var route in bracketRoutes) {
-                if (matchNumber == route[0] && database.Query<string>($"SELECT [status] FROM [matches] WHERE match_number = {route[0]} AND cup_id = {currentCupId}").FirstOrDefault("") == "complete") {
-                    if (database.Query<string>($"SELECT [status] FROM [matches] WHERE match_number = {route[1]} AND cup_id = {currentCupId}").FirstOrDefault("") == "complete") {
-                        string winnerOfLeftLeg = database.Query<string>($"SELECT [winner_steamid] FROM [matches] WHERE match_number = {route[0]} AND cup_id = {currentCupId}").First();
-                        string winnerOfRightLeg = database.Query<string>($"SELECT [winner_steamid] FROM [matches] WHERE match_number = {route[1]} AND cup_id = {currentCupId}").First();
-                        generateMatch(route[2], winnerOfLeftLeg, winnerOfRightLeg, database);
-                    }
+    // TODO: This in a more efficient way which I imagine there is
+    for (int matchNumber = 0; matchNumber < 14; matchNumber++) {
+        foreach (var route in bracketRoutes) {
+            if (matchNumber == route[0] && database.Query<string>($"SELECT [status] FROM [matches] WHERE match_number = {route[0]} AND cup_id = {currentCupId}").FirstOrDefault("") == "complete") {
+                if (database.Query<string>($"SELECT [status] FROM [matches] WHERE match_number = {route[1]} AND cup_id = {currentCupId}").FirstOrDefault("") == "complete") {
+                    string winnerOfLeftLeg = database.Query<string>($"SELECT [winner_steamid] FROM [matches] WHERE match_number = {route[0]} AND cup_id = {currentCupId}").First();
+                    string winnerOfRightLeg = database.Query<string>($"SELECT [winner_steamid] FROM [matches] WHERE match_number = {route[1]} AND cup_id = {currentCupId}").First();
+                    generateMatch(route[2], winnerOfLeftLeg, winnerOfRightLeg, database);
                 }
             }
         }
+    }
 
-        database.Execute($"UPDATE cups SET status = \"ongoing\" WHERE id = {currentCupId}");
+    database.Execute($"UPDATE cups SET status = \"ongoing\" WHERE id = {currentCupId}");
 
-        return $"Bracket generated :)\n";
+    return $"Bracket generated :)\n";
 });
 
 app.MapPost("/setlobbyid", async ([FromForm] string lobbyid, HttpContext context, IDbConnection database) => {
